@@ -71,9 +71,17 @@ async def rate_limit_exception_handler(request: Request, exc: RateLimitExceeded)
         content={"detail": "Too many requests. Please try again later."}
     )
 
-# Add middleware
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
-app.add_middleware(lambda app: add_metrics_middleware)
+# Add CORS middleware FIRST
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Add metrics middleware SECOND
+app.add_middleware("http", add_metrics_middleware)
 
 # Register routers with tags
 tags_metadata = [

@@ -6,25 +6,34 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+__all__ = ['cache_service']
+
 
 class CacheService:
     """Redis caching service for performance optimization."""
     
     def __init__(self):
+        self.redis = None
+        self.connected = False
+        
         try:
-            self.redis = redis.from_url(
-                settings.REDIS_URL or "redis://localhost:6379",
-                decode_responses=True
-            )
+            redis_url = getattr(settings, 'REDIS_URL', 'redis://localhost:6379')
+            self.redis = redis.from_url(redis_url, decode_responses=True, socket_connect_timeout=3)
             self.redis.ping()
-            logger.info("Redis connection established")
-        except Exception as e:
-            logger.error(f"Failed to connect to Redis: {e}")
+            self.connected = True
+            logger.info("✓ Redis connection established")
+        except redis.ConnectionError as e:
+            logger.warning(f"⚠ Redis connection failed: {e}. Caching disabled.")
             self.redis = None
+            self.connected = False
+        except Exception as e:
+            logger.warning(f"⚠ Failed to initialize Redis: {e}. Caching disabled.")
+            self.redis = None
+            self.connected = False
     
     async def get(self, key: str) -> Optional[Any]:
         """Get value from cache."""
-        if not self.redis:
+        if not self.connected or not self.redis:
             return None
         
         try:
@@ -40,7 +49,7 @@ class CacheService:
     
     async def set(self, key: str, value: Any, ttl: int = 3600) -> bool:
         """Set value in cache with TTL (1 hour default)."""
-        if not self.redis:
+        if not self.connected or not self.redis:
             return False
         
         try:
@@ -53,7 +62,7 @@ class CacheService:
     
     async def delete(self, key: str) -> bool:
         """Delete from cache."""
-        if not self.redis:
+        if not self.connected or not self.redis:
             return False
         
         try:
@@ -66,7 +75,7 @@ class CacheService:
     
     async def invalidate_pattern(self, pattern: str) -> int:
         """Invalidate all keys matching pattern."""
-        if not self.redis:
+        if not self.connected or not self.redis:
             return 0
         
         try:
@@ -90,7 +99,7 @@ class CacheService:
     
     async def clear_all(self) -> bool:
         """Clear all cache (use carefully!)."""
-        if not self.redis:
+        if not self.connected or not self.redis:
             return False
         
         try:
@@ -102,5 +111,5 @@ class CacheService:
             return False
 
 
-# Global cache service instance
+# Global cache service instance - gracefully handles Redis unavailability
 cache_service = CacheService()

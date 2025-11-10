@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 
 def init_sentry():
     """Initialize Sentry for error tracking and performance monitoring."""
-    if not settings.SENTRY_DSN:
-        logger.warning("Sentry DSN not configured - error tracking disabled")
+    if not getattr(settings, 'SENTRY_DSN', None):
+        logger.info("ℹ Sentry not configured - error tracking disabled")
         return
     
     try:
@@ -20,12 +20,12 @@ def init_sentry():
                 FastApiIntegration(),
                 SqlalchemyIntegration(),
             ],
-            traces_sample_rate=0.1,  # 10% of transactions
-            profiles_sample_rate=0.1,  # 10% of profiles
-            environment=settings.ENVIRONMENT,
-            release=settings.APP_VERSION,
-            debug=settings.DEBUG,
+            traces_sample_rate=0.1,
+            profiles_sample_rate=0.1,
+            environment=getattr(settings, 'ENVIRONMENT', 'development'),
+            release=getattr(settings, 'APP_VERSION', '1.0.0'),
+            debug=getattr(settings, 'DEBUG', False),
         )
-        logger.info("Sentry initialized successfully")
+        logger.info("✓ Sentry initialized successfully")
     except Exception as e:
-        logger.error(f"Failed to initialize Sentry: {e}")
+        logger.warning(f"⚠ Failed to initialize Sentry: {e}")
