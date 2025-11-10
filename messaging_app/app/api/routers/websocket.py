@@ -15,12 +15,16 @@ from uuid import UUID
 import json
 import logging
 
+
 logger = logging.getLogger(__name__)
+
 
 router = APIRouter()
 
 
+
 # ============ CHANNEL WEBSOCKET ============
+
 
 @router.websocket("/ws/channels/{channel_id}")
 async def websocket_channel_endpoint(
@@ -270,7 +274,9 @@ async def websocket_channel_endpoint(
             logger.info(f"User {user.username} disconnected from channel {channel_id}")
 
 
+
 # ============ DIRECT MESSAGE WEBSOCKET ============
+
 
 @router.websocket("/ws/dm/{other_user_id}")
 async def websocket_dm_endpoint(
