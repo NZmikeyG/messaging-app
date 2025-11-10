@@ -2,14 +2,25 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from datetime import datetime
 from uuid import UUID
+from app.utils.sanitizer import sanitizer
 
 
 class MessageCreate(BaseModel):
     content: str = Field(..., min_length=1, max_length=5000)
+    
+    @field_validator('content')
+    @classmethod
+    def sanitize_content(cls, v):
+        return sanitizer.sanitize_text(v)
 
 
 class MessageUpdate(BaseModel):
     content: str = Field(..., min_length=1, max_length=5000)
+    
+    @field_validator('content')
+    @classmethod
+    def sanitize_content(cls, v):
+        return sanitizer.sanitize_text(v)
 
 
 class MessageUser(BaseModel):

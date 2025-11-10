@@ -1,13 +1,13 @@
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer
 from starlette.requests import Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.utils.jwt_utils import decode_access_token
+import logging
+from uuid import UUID
 
-
-security = HTTPBearer()
+logger = logging.getLogger(__name__)
 
 
 async def get_current_user(
@@ -55,8 +55,21 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    try:
+        # Convert string to UUID if necessary
+        if isinstance(user_id, str):
+            user_id = UUID(user_id)
+    except ValueError:
+        logger.error(f"Invalid UUID format: {user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid user ID format",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
     user = db.query(User).filter(User.id == user_id).first()
     if user is None:
+        logger.warning(f"User not found: {user_id}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",

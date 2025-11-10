@@ -1,7 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.api.routers import auth, channels, messages, websocket, users, files, calendar, direct_messages
+from app.logger import get_logger
+from slowapi.errors import RateLimitExceeded
+from fastapi.responses import JSONResponse
+
+
+logger = get_logger(__name__)
 
 
 app = FastAPI(
@@ -11,10 +17,24 @@ app = FastAPI(
 )
 
 
+# Log startup
+logger.info("Starting Messaging & Workflow App")
+
+
+# Add rate limit exception handler
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exception_handler(request: Request, exc: RateLimitExceeded):
+    logger.warning(f"Rate limit exceeded for {request.client.host if request.client else 'unknown'}")
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests. Please try again later."}
+    )
+
+
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Or ["http://localhost:3000"] for extra security
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
