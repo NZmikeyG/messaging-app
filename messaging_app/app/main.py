@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
 from app.config import settings
 from app.api.routers import auth, channels, messages, websocket, users, files, calendar, direct_messages
@@ -57,7 +57,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Add metrics middleware SECOND (with proper BaseHTTPMiddleware)
+# Add metrics middleware SECOND (with proper BaseHTTPMiddleware from Starlette)
 app.add_middleware(BaseHTTPMiddleware, dispatch=add_metrics_middleware)
 
 # Register routers with tags
