@@ -48,3 +48,40 @@ class MessagePublic(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class MessageSender(BaseModel):
+    id: str
+    username: str
+    email: str
+
+    @field_validator('id', mode='before')
+    @classmethod
+    def convert_id_to_str(cls, v):
+        if isinstance(v, UUID):
+            return str(v)
+        return v
+
+    class Config:
+        from_attributes = True
+
+
+class FilePublic(BaseModel):
+    id: str
+    channel_id: str
+    sender_id: str
+    sender: MessageSender
+    filename: str
+    file_type: str
+    file_size: int
+    created_at: datetime
+
+    @field_validator('id', 'channel_id', 'sender_id', mode='before')
+    @classmethod
+    def convert_uuid_to_str(cls, v):
+        if isinstance(v, UUID):
+            return str(v)
+        return v
+
+    class Config:
+        from_attributes = True
