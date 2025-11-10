@@ -1,0 +1,8 @@
+.chat-page { max-width:600px; margin:40px auto; }
+.chat-container { background: #fafaff; border: 1px solid #eee; border-radius: 10px; padding: 16px; height: 400px; overflow-y: auto; margin-bottom: 20px; }
+.chat-message { margin-bottom: 8px; }
+.timestamp { color:#aaa; font-size:12px; margin-left:8px; }
+.chat-form { display: flex; gap: 8px; }
+.chat-form input { flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #ddd; }
+.chat-form button { padding: 10px 20px; border-radius: 6px; background: #667eea; color: #fff; border: none; cursor: pointer; }
+.error { color: #e74c3c; margin-top: 12px; }
