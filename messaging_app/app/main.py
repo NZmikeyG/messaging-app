@@ -8,6 +8,7 @@ from app.logger import get_logger
 from app.middleware.metrics import add_metrics_middleware
 from app.middleware.error_tracking import init_sentry
 from slowapi.errors import RateLimitExceeded
+from app.api.routers import admin
 import logging
 
 logger = get_logger(__name__)
@@ -82,6 +83,7 @@ app.include_router(files.router, prefix="/api/files", tags=["files"])
 app.include_router(calendar.router, prefix="/api/calendar", tags=["calendar"])
 app.include_router(websocket.router, prefix="/api", tags=["websocket"])
 app.include_router(direct_messages.router, prefix="/api/direct-messages", tags=["direct-messages"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 @app.get("/")
 def root():
@@ -98,3 +100,4 @@ def metrics():
     """Prometheus metrics endpoint."""
     from prometheus_client import generate_latest
     return generate_latest()
+
