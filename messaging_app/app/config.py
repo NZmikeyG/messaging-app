@@ -1,16 +1,34 @@
 from pydantic_settings import BaseSettings
+from typing import Optional
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql://postgres:password@localhost:5432/messaging_db"
-    SECRET_KEY: str = "your-secret-key"
+    # App Configuration
+    APP_NAME: str = "Messaging & Workflow App"
+    APP_VERSION: str = "1.0.0"
+    DEBUG: bool = False
+    ENVIRONMENT: str = "development"
+    
+    # Database Configuration
+    DATABASE_URL: str = "postgresql://user:password@localhost:5432/messaging_app"
+    
+    # JWT Configuration
+    SECRET_KEY: str = "your-super-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    DEBUG: bool = False
-
+    
+    # Redis Configuration
+    REDIS_URL: str = "redis://localhost:6379"
+    CACHE_TTL: int = 3600  # 1 hour
+    
+    # Sentry Configuration
+    SENTRY_DSN: Optional[str] = None
+    
+    # Rate Limiting
+    RATE_LIMIT_ENABLED: bool = True
+    
     class Config:
         env_file = ".env"
-        case_sensitive = True
 
 
 settings = Settings()

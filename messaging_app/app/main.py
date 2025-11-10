@@ -1,27 +1,68 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.config import settings
 from app.api.routers import auth, channels, messages, websocket, users, files, calendar, direct_messages
 from app.logger import get_logger
+from app.middleware.metrics import add_metrics_middleware
+from app.middleware.error_tracking import init_sentry
 from slowapi.errors import RateLimitExceeded
-from fastapi.responses import JSONResponse
-
 
 logger = get_logger(__name__)
 
+# Initialize Sentry
+init_sentry()
 
+# Create FastAPI app with comprehensive documentation
 app = FastAPI(
     title="Messaging & Workflow App",
-    version="0.1.0",
-    debug=settings.DEBUG
+    version="1.0.0",
+    description="""
+    A real-time messaging platform with WebSocket support.
+    
+    ## Features
+    
+    * **User Management** - Register, login, profile management
+    * **Channels** - Create, join, and manage channels
+    * **Messaging** - Real-time message synchronization
+    * **Direct Messages** - Private messaging with read receipts
+    * **File Sharing** - Upload and share files in channels
+    * **WebSocket** - Real-time typing indicators and presence
+    * **Performance** - Redis caching and query optimization
+    
+    ## Endpoints
+    
+    ### Authentication
+    - POST /api/auth/register - Register new user
+    - POST /api/auth/login - User login
+    - GET /api/auth/me - Get current user
+    
+    ### Channels
+    - GET /api/channels - List user channels
+    - POST /api/channels - Create channel
+    - GET /api/channels/{channel_id} - Get channel details
+    
+    ### Messaging
+    - POST /api/messages - Send message
+    - GET /api/messages - Get channel messages
+    - PUT /api/messages/{message_id} - Edit message
+    
+    ### Direct Messages
+    - POST /api/direct-messages - Send DM
+    - GET /api/direct-messages - Get conversation
+    
+    ### WebSocket
+    - WS /api/ws/channels/{channel_id} - Channel messaging
+    - WS /api/ws/dm/{user_id} - Direct messaging
+    """,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
 )
 
-
-# Log startup
 logger.info("Starting Messaging & Workflow App")
 
-
-# Add rate limit exception handler
+# Rate limit exception handler
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_exception_handler(request: Request, exc: RateLimitExceeded):
     logger.warning(f"Rate limit exceeded for {request.client.host if request.client else 'unknown'}")
@@ -30,18 +71,24 @@ async def rate_limit_exception_handler(request: Request, exc: RateLimitExceeded)
         content={"detail": "Too many requests. Please try again later."}
     )
 
+# Add middleware
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(lambda app: add_metrics_middleware)
 
-# CORS Middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Register routers with tags
+tags_metadata = [
+    {"name": "auth", "description": "Authentication endpoints - Register, login, profile"},
+    {"name": "channels", "description": "Channel management - Create, join, manage channels"},
+    {"name": "messages", "description": "Message operations - Send, edit, delete messages"},
+    {"name": "direct-messages", "description": "Direct messaging - Private conversations"},
+    {"name": "users", "description": "User management - Profiles, settings"},
+    {"name": "files", "description": "File operations - Upload, download files"},
+    {"name": "calendar", "description": "Calendar and events"},
+    {"name": "websocket", "description": "Real-time WebSocket connections"},
+]
 
+app.openapi_tags = tags_metadata
 
-# Register all routers
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(channels.router, prefix="/api/channels", tags=["channels"])
 app.include_router(messages.router, prefix="/api/messages", tags=["messages"])
@@ -51,7 +98,18 @@ app.include_router(calendar.router, prefix="/api/calendar", tags=["calendar"])
 app.include_router(websocket.router, prefix="/api", tags=["websocket"])
 app.include_router(direct_messages.router, prefix="/api/direct-messages", tags=["direct-messages"])
 
-
 @app.get("/")
 def root():
-    return {"message": "Welcome to Messaging & Workflow App"}
+    """Root endpoint - API status."""
+    return {"message": "Welcome to Messaging & Workflow App", "version": "1.0.0"}
+
+@app.get("/health")
+def health():
+    """Health check endpoint."""
+    return {"status": "healthy"}
+
+@app.get("/metrics")
+def metrics():
+    """Prometheus metrics endpoint."""
+    from prometheus_client import generate_latest
+    return generate_latest()
