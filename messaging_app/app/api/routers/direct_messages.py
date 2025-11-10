@@ -20,22 +20,31 @@ def send_direct_message(
     db: Session = Depends(get_db)
 ):
     """Send a direct message to another user."""
-    receiver = db.query(User).filter(User.id == dm.receiver_id).first()
+    from uuid import UUID
+    
+    # Convert string receiver_id to UUID
+    try:
+        receiver_id = UUID(dm.receiver_id) if isinstance(dm.receiver_id, str) else dm.receiver_id
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid receiver ID format")
+    
+    receiver = db.query(User).filter(User.id == receiver_id).first()
     if not receiver:
         raise HTTPException(status_code=404, detail="Receiver not found")
     
-    if dm.receiver_id == str(current_user.id):
+    if receiver_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot send message to yourself")
     
     new_dm = DirectMessage(
         content=dm.content,
         sender_id=current_user.id,
-        receiver_id=dm.receiver_id
+        receiver_id=receiver_id
     )
     db.add(new_dm)
     db.commit()
     db.refresh(new_dm)
     return new_dm
+
 
 
 @router.get("/", response_model=List[DirectMessagePublic])
@@ -47,14 +56,22 @@ def get_direct_messages(
     db: Session = Depends(get_db)
 ):
     """Get direct messages with a specific user."""
-    other_user = db.query(User).filter(User.id == other_user_id).first()
+    from uuid import UUID
+    
+    # Convert string to UUID
+    try:
+        other_user_id_uuid = UUID(other_user_id) if isinstance(other_user_id, str) else other_user_id
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user ID format")
+    
+    other_user = db.query(User).filter(User.id == other_user_id_uuid).first()
     if not other_user:
         raise HTTPException(status_code=404, detail="User not found")
     
     messages = db.query(DirectMessage).filter(
         or_(
-            and_(DirectMessage.sender_id == current_user.id, DirectMessage.receiver_id == other_user_id),
-            and_(DirectMessage.sender_id == other_user_id, DirectMessage.receiver_id == current_user.id)
+            and_(DirectMessage.sender_id == current_user.id, DirectMessage.receiver_id == other_user_id_uuid),
+            and_(DirectMessage.sender_id == other_user_id_uuid, DirectMessage.receiver_id == current_user.id)
         ),
         DirectMessage.is_deleted == False
     ).order_by(DirectMessage.created_at.desc()).offset(skip).limit(limit).all()
@@ -65,6 +82,7 @@ def get_direct_messages(
     db.commit()
     
     return messages
+
 
 
 @router.get("/conversations", response_model=List[DMUser])

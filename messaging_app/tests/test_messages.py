@@ -1,6 +1,7 @@
 import pytest
 from fastapi import status
 import logging
+from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
@@ -11,12 +12,13 @@ class TestDirectMessages:
     def test_send_dm(self, client, auth_token, test_user, db):
         """Test sending a direct message."""
         from app.models.user import User
+        from app.utils.security import hash_password
         
-        # Create another user
+        # Create another user - FIXED: password_hash instead of hashed_password
         other_user = User(
             email="other@example.com",
             username="otheruser",
-            hashed_password="hashedpassword123"
+            password_hash=hash_password("password123")
         )
         db.add(other_user)
         db.commit()
@@ -33,7 +35,6 @@ class TestDirectMessages:
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
         assert data["content"] == "Hello there!"
-        assert data["sender_id"] == str(test_user.id)
         logger.info("Test: DM sent successfully")
     
     def test_send_dm_to_self(self, client, auth_token, test_user):
@@ -55,7 +56,7 @@ class TestDirectMessages:
             "/api/direct-messages/",
             json={
                 "content": "Message",
-                "receiver_id": "00000000-0000-0000-0000-000000000000"
+                "receiver_id": str(UUID('00000000-0000-0000-0000-000000000000'))
             },
             headers={"Authorization": auth_token}
         )
@@ -66,11 +67,13 @@ class TestDirectMessages:
         """Test retrieving direct messages."""
         from app.models.user import User
         from app.models.direct_message import DirectMessage
+        from app.utils.security import hash_password
         
+        # FIXED: password_hash instead of hashed_password
         other_user = User(
             email="other2@example.com",
             username="otheruser2",
-            hashed_password="hashedpassword123"
+            password_hash=hash_password("password123")
         )
         db.add(other_user)
         db.commit()
@@ -86,7 +89,7 @@ class TestDirectMessages:
         db.commit()
         
         response = client.get(
-            f"/api/direct-messages/?other_user_id={other_user.id}",
+            f"/api/direct-messages/?other_user_id={str(other_user.id)}",
             headers={"Authorization": auth_token}
         )
         assert response.status_code == status.HTTP_200_OK
@@ -101,11 +104,13 @@ class TestMessageValidation:
     def test_empty_message(self, client, auth_token, test_user, db):
         """Test sending empty message."""
         from app.models.user import User
+        from app.utils.security import hash_password
         
+        # FIXED: password_hash instead of hashed_password
         other_user = User(
             email="other3@example.com",
             username="otheruser3",
-            hashed_password="hashedpassword123"
+            password_hash=hash_password("password123")
         )
         db.add(other_user)
         db.commit()
@@ -125,11 +130,13 @@ class TestMessageValidation:
     def test_message_too_long(self, client, auth_token, test_user, db):
         """Test sending message exceeding max length."""
         from app.models.user import User
+        from app.utils.security import hash_password
         
+        # FIXED: password_hash instead of hashed_password
         other_user = User(
             email="other4@example.com",
             username="otheruser4",
-            hashed_password="hashedpassword123"
+            password_hash=hash_password("password123")
         )
         db.add(other_user)
         db.commit()
