@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
 from app.config import settings
 from app.api.routers import auth, channels, messages, websocket, users, files, calendar, direct_messages
@@ -7,6 +8,7 @@ from app.logger import get_logger
 from app.middleware.metrics import add_metrics_middleware
 from app.middleware.error_tracking import init_sentry
 from slowapi.errors import RateLimitExceeded
+import logging
 
 logger = get_logger(__name__)
 
@@ -29,43 +31,18 @@ app = FastAPI(
     * **File Sharing** - Upload and share files in channels
     * **WebSocket** - Real-time typing indicators and presence
     * **Performance** - Redis caching and query optimization
-    
-    ## Endpoints
-    
-    ### Authentication
-    - POST /api/auth/register - Register new user
-    - POST /api/auth/login - User login
-    - GET /api/auth/me - Get current user
-    
-    ### Channels
-    - GET /api/channels - List user channels
-    - POST /api/channels - Create channel
-    - GET /api/channels/{channel_id} - Get channel details
-    
-    ### Messaging
-    - POST /api/messages - Send message
-    - GET /api/messages - Get channel messages
-    - PUT /api/messages/{message_id} - Edit message
-    
-    ### Direct Messages
-    - POST /api/direct-messages - Send DM
-    - GET /api/direct-messages - Get conversation
-    
-    ### WebSocket
-    - WS /api/ws/channels/{channel_id} - Channel messaging
-    - WS /api/ws/dm/{user_id} - Direct messaging
     """,
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
 )
 
-logger.info("Starting Messaging & Workflow App")
+logger.info("✓ Starting Messaging & Workflow App")
 
 # Rate limit exception handler
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_exception_handler(request: Request, exc: RateLimitExceeded):
-    logger.warning(f"Rate limit exceeded for {request.client.host if request.client else 'unknown'}")
+    logger.warning(f"⚠ Rate limit exceeded for {request.client.host if request.client else 'unknown'}")
     return JSONResponse(
         status_code=429,
         content={"detail": "Too many requests. Please try again later."}
@@ -80,8 +57,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Add metrics middleware SECOND
-app.add_middleware("http", add_metrics_middleware)
+# Add metrics middleware SECOND (with proper BaseHTTPMiddleware)
+app.add_middleware(BaseHTTPMiddleware, dispatch=add_metrics_middleware)
 
 # Register routers with tags
 tags_metadata = [
@@ -109,12 +86,12 @@ app.include_router(direct_messages.router, prefix="/api/direct-messages", tags=[
 @app.get("/")
 def root():
     """Root endpoint - API status."""
-    return {"message": "Welcome to Messaging & Workflow App", "version": "1.0.0"}
+    return {"message": "Welcome to Messaging & Workflow App", "version": "1.0.0", "status": "running"}
 
 @app.get("/health")
 def health():
     """Health check endpoint."""
-    return {"status": "healthy"}
+    return {"status": "healthy", "version": "1.0.0"}
 
 @app.get("/metrics")
 def metrics():
