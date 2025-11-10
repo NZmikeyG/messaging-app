@@ -1,80 +1,86 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
-from typing import List
-from app.database import get_db
-from app.models.user import User
-from app.dependencies import get_current_user
-from pydantic import BaseModel, field_validator
 from uuid import UUID
 
+from app.database import get_db
+from app.dependencies import get_current_user
+from app.models.user import User
+from app.api.schemas.user import UserPublic, UserProfileUpdate
+from app.services.cache_service import cache_service
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-# Schema with UUID validator
-class UserPublic(BaseModel):
-    id: str
-    email: str
-    username: str
-
-    @field_validator('id', mode='before')
-    @classmethod
-    def convert_id_to_str(cls, v):
-        if isinstance(v, UUID):
-            return str(v)
-        return v
-
-    class Config:
-        from_attributes = True
-
-
-@router.get("/me", response_model=UserPublic)
-def get_current_user_profile(current_user: User = Depends(get_current_user)):
-    """Get current authenticated user's profile."""
-    return current_user
-
-
-@router.get("/search", response_model=List[UserPublic])
-def search_users(
-    query: str = Query(..., min_length=1, max_length=255),
-    limit: int = Query(10, ge=1, le=50),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Search users by email or username."""
-    users = db.query(User).filter(
-        or_(
-            User.email.ilike(f"%{query}%"),
-            User.username.ilike(f"%{query}%")
-        )
-    ).limit(limit).all()
-    
-    return users
-
-
-@router.get("/{user_id}", response_model=UserPublic)
-def get_user(
+@router.get("/profile/{user_id}", response_model=UserPublic)
+async def get_user_profile(
     user_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """Get a specific user by ID."""
-    user = db.query(User).filter(User.id == user_id).first()
+    """Get user profile."""
+    try:
+        user_uuid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user ID format")
     
+    # Try cache
+    cache_key = f"user:{user_id}:profile"
+    cached = await cache_service.get(cache_key)
+    if cached:
+        return cached
+    
+    user = db.query(User).filter(User.id == user_uuid).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    return user
+    result = {
+        "id": str(user.id),
+        "username": user.username,
+        "email": user.email,
+        "avatar_url": user.avatar_url,
+        "bio": user.bio,
+        "status": user.status,
+        "created_at": user.created_at,
+    }
+    
+    # Cache result
+    await cache_service.set(cache_key, result, ttl=300)
+    
+    return result
 
 
-@router.get("/", response_model=List[UserPublic])
-def list_all_users(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1, le=100),
+@router.put("/profile", response_model=UserPublic)
+async def update_user_profile(
+    profile_update: UserProfileUpdate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """Get all users (paginated)."""
-    users = db.query(User).offset(skip).limit(limit).all()
-    return users
+    """Update current user profile."""
+    logger.info(f"Updating profile for user {current_user.id}")
+    
+    if profile_update.avatar_url is not None:
+        current_user.avatar_url = profile_update.avatar_url
+    if profile_update.bio is not None:
+        current_user.bio = profile_update.bio
+    if profile_update.status is not None:
+        current_user.status = profile_update.status
+    
+    db.commit()
+    db.refresh(current_user)
+    
+    # Invalidate cache
+    await cache_service.invalidate_user_cache(str(current_user.id))
+    
+    logger.info(f"Profile updated for user {current_user.id}")
+    
+    return {
+        "id": str(current_user.id),
+        "username": current_user.username,
+        "email": current_user.email,
+        "avatar_url": current_user.avatar_url,
+        "bio": current_user.bio,
+        "status": current_user.status,
+        "created_at": current_user.created_at,
+    }

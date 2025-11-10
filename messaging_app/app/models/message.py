@@ -18,19 +18,19 @@ class Message(Base):
     is_deleted = Column(Boolean, default=False)
     is_edited = Column(Boolean, default=False)
     
-    # Self-referential relationship for threading - FIXED
+    # Self-referential relationship for threading - CORRECTED
     parent_id = Column(UUID(as_uuid=True), ForeignKey('messages.id'), nullable=True)
     replies = relationship(
         'Message',
         back_populates='parent',
         remote_side=[id],
-        cascade='all, delete-orphan'
+        cascade='all, delete-orphan',
+        single_parent=True  # CRITICAL: Added this line!
     )
     parent = relationship(
         'Message',
         remote_side=[parent_id],
-        back_populates='replies',
-        foreign_keys=[parent_id]
+        back_populates='replies'
     )
     
     # Reactions
