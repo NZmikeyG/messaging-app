@@ -1,106 +1,112 @@
 from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
+from google.oauth2.service_account import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import os
-from datetime import datetime, timedelta
+import json
+from datetime import datetime
+import logging
 
+logger = logging.getLogger(__name__)
 
-# Google OAuth Config
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 
-def get_google_auth_url():
-    """Get Google OAuth authorization URL."""
-    flow = Flow.from_client_secrets_file(
-        'credentials.json',
-        scopes=SCOPES,
-        redirect_uri='http://localhost:8000/api/calendar/callback'
-    )
+class GoogleCalendarIntegration:
+    '''Handle Google Calendar OAuth2 and sync'''
     
-    auth_url, state = flow.authorization_url(prompt='consent')
-    return auth_url, state
-
-
-def get_credentials_from_code(authorization_code: str):
-    """Exchange authorization code for credentials."""
-    flow = Flow.from_client_secrets_file(
-        'credentials.json',
-        scopes=SCOPES,
-        redirect_uri='http://localhost:8000/api/calendar/callback'
-    )
+    def __init__(self):
+        self.client_id = os.getenv('GOOGLE_CALENDAR_CLIENT_ID')
+        self.client_secret = os.getenv('GOOGLE_CALENDAR_CLIENT_SECRET')
+        self.redirect_uri = os.getenv('GOOGLE_CALENDAR_REDIRECT_URI', 'http://localhost:8000/api/calendar/google/callback')
     
-    flow.fetch_token(code=authorization_code)
-    credentials = flow.credentials
     
-    return {
-        'access_token': credentials.token,
-        'refresh_token': credentials.refresh_token
-    }
-
-
-def get_google_events(access_token: str, days_ahead: int = 30):
-    """Fetch events from Google Calendar."""
-    try:
-        credentials = Credentials(token=access_token)
-        service = build('calendar', 'v3', credentials=credentials)
-        
-        now = datetime.utcnow().isoformat() + 'Z'
-        future = (datetime.utcnow() + timedelta(days=days_ahead)).isoformat() + 'Z'
-        
-        events_result = service.events().list(
-            calendarId='primary',
-            timeMin=now,
-            timeMax=future,
-            maxResults=100,
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
-        
-        return events_result.get('items', [])
+    def get_auth_url(self, state: str):
+        '''Get Google OAuth2 authorization URL'''
+        flow = InstalledAppFlow.from_client_secrets_file(
+            'google_credentials.json',
+            SCOPES
+        )
+        auth_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true')
+        return auth_url, state
     
-    except HttpError as error:
-        print(f'Google Calendar API error: {error}')
-        return []
-
-
-def sync_google_events_to_db(user_id: str, access_token: str, db):
-    """Sync Google Calendar events to database."""
-    from app.models.calendar import CalendarEvent
     
-    google_events = get_google_events(access_token)
-    
-    for google_event in google_events:
-        start_time = google_event['start'].get('dateTime') or google_event['start'].get('date')
-        end_time = google_event['end'].get('dateTime') or google_event['end'].get('date')
-        
-        # Check if event already exists
-        existing = db.query(CalendarEvent).filter(
-            CalendarEvent.user_id == user_id,
-            CalendarEvent.google_event_id == google_event['id']
-        ).first()
-        
-        if existing:
-            # Update existing event
-            existing.title = google_event['summary']
-            existing.description = google_event.get('description')
-            existing.start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-            existing.end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
-            existing.location = google_event.get('location')
-        else:
-            # Create new event
-            new_event = CalendarEvent(
-                user_id=user_id,
-                title=google_event['summary'],
-                description=google_event.get('description'),
-                start_time=datetime.fromisoformat(start_time.replace('Z', '+00:00')),
-                end_time=datetime.fromisoformat(end_time.replace('Z', '+00:00')),
-                location=google_event.get('location'),
-                google_event_id=google_event['id']
+    def exchange_code_for_tokens(self, auth_code: str):
+        '''Exchange authorization code for access token'''
+        try:
+            flow = InstalledAppFlow.from_client_secrets_file(
+                'google_credentials.json',
+                SCOPES,
+                redirect_uri=self.redirect_uri
             )
-            db.add(new_event)
+            credentials = flow.fetch_token(code=auth_code)
+            
+            return {
+                'access_token': credentials.get('access_token'),
+                'refresh_token': credentials.get('refresh_token'),
+                'expires_in': credentials.get('expires_in')
+            }
+        except Exception as e:
+            logger.error(f'Error exchanging code: {str(e)}')
+            raise
     
-    db.commit()
+    
+    def refresh_access_token(self, refresh_token: str):
+        '''Refresh expired access token'''
+        try:
+            # Would need to implement proper refresh logic
+            # This is a simplified example
+            logger.info(f'Refreshing token...')
+            return refresh_token
+        except Exception as e:
+            logger.error(f'Error refreshing token: {str(e)}')
+            raise
+    
+    
+    def get_calendar_list(self, access_token: str):
+        '''Get list of user's Google Calendars'''
+        try:
+            service = build('calendar', 'v3', credentials=access_token)
+            calendars = service.calendarList().list().execute()
+            return calendars.get('items', [])
+        except HttpError as e:
+            logger.error(f'Google API Error: {str(e)}')
+            raise
+    
+    
+    def sync_calendar_events(self, access_token: str, google_calendar_id: str, start_time: datetime = None):
+        '''Sync events from Google Calendar'''
+        try:
+            service = build('calendar', 'v3', credentials=access_token)
+            
+            events_result = service.events().list(
+                calendarId=google_calendar_id,
+                maxResults=100,
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+            
+            return events_result.get('items', [])
+        except HttpError as e:
+            logger.error(f'Error syncing events: {str(e)}')
+            raise
+    
+    
+    def create_event_on_google(self, access_token: str, google_calendar_id: str, event_data: dict):
+        '''Create event on Google Calendar'''
+        try:
+            service = build('calendar', 'v3', credentials=access_token)
+            
+            event = service.events().insert(
+                calendarId=google_calendar_id,
+                body=event_data
+            ).execute()
+            
+            return event
+        except HttpError as e:
+            logger.error(f'Error creating event: {str(e)}')
+            raise
+
+
+google_calendar = GoogleCalendarIntegration()
