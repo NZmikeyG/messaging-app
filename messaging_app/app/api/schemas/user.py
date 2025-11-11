@@ -1,36 +1,30 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from typing import Optional
-from datetime import datetime
 from uuid import UUID
+from datetime import datetime
 
 
-class UserProfile(BaseModel):
-    avatar_url: Optional[str] = None
-    bio: Optional[str] = None
-    status: Optional[str] = "Available"
-
-
-class UserProfileUpdate(BaseModel):
-    avatar_url: Optional[str] = None
-    bio: Optional[str] = None
-    status: Optional[str] = None
+class UserCreate(BaseModel):
+    email: EmailStr
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=8)
 
 
 class UserPublic(BaseModel):
     id: str
-    username: str
     email: EmailStr
-    avatar_url: Optional[str] = None
-    bio: Optional[str] = None
-    status: Optional[str] = "Available"
+    username: str
     created_at: datetime
 
-    @field_validator('id', mode='before')
-    @classmethod
-    def convert_id_to_str(cls, v):
-        if isinstance(v, UUID):
-            return str(v)
-        return v
+    model_config = ConfigDict(from_attributes=True)
 
-    class Config:
-        from_attributes = True
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = Field(None, min_length=3, max_length=50)
+    email: Optional[EmailStr] = None
+
+
+class UserProfileUpdate(BaseModel):
+    username: Optional[str] = Field(None, min_length=3, max_length=50)
+    email: Optional[EmailStr] = None
+    bio: Optional[str] = Field(None, max_length=500)

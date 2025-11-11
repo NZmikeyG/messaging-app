@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from app.database import get_db
 from app.models.user import User
 from app.utils.security import hash_password, verify_password
@@ -28,8 +28,7 @@ class UserPublic(BaseModel):
     email: EmailStr
     username: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserLogin(BaseModel):
@@ -49,17 +48,17 @@ class TokenResponse(BaseModel):
 def register(user: UserRegister, db: Session = Depends(get_db)):
     """Register a new user."""
     logger.info(f"Registration attempt for email: {user.email}")
-    
+
     if db.query(User).filter(User.email == user.email).first():
         logger.warning(f"Registration failed - email already registered: {user.email}")
         raise HTTPException(status_code=400, detail="Email already registered")
-    
+
     hashed = hash_password(user.password[:72])
     new_user = User(email=user.email, username=user.username, password_hash=hashed)
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    
+
     logger.info(f"User registered successfully: {user.email}")
     return {
         "id": str(new_user.id),
@@ -72,21 +71,21 @@ def register(user: UserRegister, db: Session = Depends(get_db)):
 def login(user: UserLogin, db: Session = Depends(get_db)):
     """Login user and return access token."""
     logger.info(f"Login attempt for email: {user.email}")
-    
+
     db_user = db.query(User).filter(User.email == user.email).first()
-    
+
     if not db_user:
         logger.warning(f"Login failed - user not found: {user.email}")
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    
-    if not verify_password(user.password[:72], db_user.password_hash):  # CHANGED: hashed_password → password_hash
+
+    if not verify_password(user.password[:72], db_user.password_hash):
         logger.warning(f"Login failed - invalid password for: {user.email}")
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    
+
     access_token = create_access_token(data={"sub": str(db_user.id)})
-    
+
     logger.info(f"User logged in successfully: {user.email}")
-    
+
     return {
         "access_token": access_token,
         "token_type": "bearer",

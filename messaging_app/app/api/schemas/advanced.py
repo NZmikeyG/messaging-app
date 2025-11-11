@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from uuid import UUID
@@ -22,9 +22,8 @@ class DeviceSessionResponse(BaseModel):
     last_active: datetime
     is_active: bool
     created_at: datetime
-    
-    class Config:
-        from_attributes = True
+
+    model_config = ConfigDict(from_attributes=True)
 
 class UserActivityResponse(BaseModel):
     id: UUID
@@ -34,9 +33,8 @@ class UserActivityResponse(BaseModel):
     target_id: Optional[UUID]
     metadata_payload: Optional[Dict[str, Any]]
     created_at: datetime
-    
-    class Config:
-        from_attributes = True
+
+    model_config = ConfigDict(from_attributes=True)
 
 class SecurityAuditLogResponse(BaseModel):
     id: UUID
@@ -46,9 +44,8 @@ class SecurityAuditLogResponse(BaseModel):
     status: str
     reason: Optional[str]
     created_at: datetime
-    
-    class Config:
-        from_attributes = True
+
+    model_config = ConfigDict(from_attributes=True)
 
 class AdvancedSearchRequest(BaseModel):
     query: str
@@ -73,9 +70,8 @@ class UserAnalyticsResponse(BaseModel):
     most_active_channel: Optional[str]
     last_active: datetime
     devices_active: int
-    
-    class Config:
-        from_attributes = True
+
+    model_config = ConfigDict(from_attributes=True)
 
 class AdminAnalyticsDashboard(BaseModel):
     total_users_active_today: int
@@ -87,4 +83,3 @@ class AdminAnalyticsDashboard(BaseModel):
     two_fa_enabled_users: int
     peak_hour: int
     engagement_rate: float
-

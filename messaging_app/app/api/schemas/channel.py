@@ -1,8 +1,7 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
-
 
 
 class ChannelCreate(BaseModel):
@@ -10,11 +9,9 @@ class ChannelCreate(BaseModel):
     description: Optional[str] = Field(None, max_length=1000)
 
 
-
 class ChannelUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=1000)
-
 
 
 class ChannelMember(BaseModel):
@@ -29,9 +26,7 @@ class ChannelMember(BaseModel):
             return str(v)
         return v
 
-    class Config:
-        from_attributes = True
-
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ChannelPublic(BaseModel):
@@ -49,5 +44,4 @@ class ChannelPublic(BaseModel):
             return str(v)
         return v
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

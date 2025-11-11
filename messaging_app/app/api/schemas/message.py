@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator, constr
+from pydantic import BaseModel, Field, field_validator, constr, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
@@ -23,8 +23,7 @@ class MessageReactionPublic(MessageReactionBase):
             return str(v)
         return v
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MessageCreate(BaseModel):
@@ -58,8 +57,7 @@ class MessageUser(BaseModel):
             return str(v)
         return v
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MessagePublic(BaseModel):
@@ -84,11 +82,10 @@ class MessagePublic(BaseModel):
             return str(v)
         return v
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
-MessagePublic.update_forward_refs()
+MessagePublic.model_rebuild()
 
 
 class MessageSender(BaseModel):
@@ -103,8 +100,7 @@ class MessageSender(BaseModel):
             return str(v)
         return v
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FilePublic(BaseModel):
@@ -124,5 +120,4 @@ class FilePublic(BaseModel):
             return str(v)
         return v
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

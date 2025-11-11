@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
@@ -12,9 +12,8 @@ class UserRoleResponse(BaseModel):
     user_id: UUID
     role: str
     assigned_at: datetime
-    
-    class Config:
-        from_attributes = True
+
+    model_config = ConfigDict(from_attributes=True)
 
 class ChannelRoleCreate(BaseModel):
     user_id: UUID
@@ -25,9 +24,8 @@ class ChannelRoleResponse(BaseModel):
     user_id: UUID
     role: str
     assigned_at: datetime
-    
-    class Config:
-        from_attributes = True
+
+    model_config = ConfigDict(from_attributes=True)
 
 class FlagMessageRequest(BaseModel):
     reason: str
@@ -44,9 +42,8 @@ class FlaggedContentResponse(BaseModel):
     reviewed_at: Optional[datetime]
     action_taken: Optional[str]
     created_at: datetime
-    
-    class Config:
-        from_attributes = True
+
+    model_config = ConfigDict(from_attributes=True)
 
 class ReviewFlagRequest(BaseModel):
     status: str  # reviewed, resolved, dismissed
@@ -63,9 +60,8 @@ class UserSuspensionResponse(BaseModel):
     suspended_at: datetime
     suspended_until: Optional[datetime]
     is_active: bool
-    
-    class Config:
-        from_attributes = True
+
+    model_config = ConfigDict(from_attributes=True)
 
 class AdminActionResponse(BaseModel):
     id: UUID
@@ -76,9 +72,8 @@ class AdminActionResponse(BaseModel):
     reason: Optional[str]
     details: Optional[str]
     created_at: datetime
-    
-    class Config:
-        from_attributes = True
+
+    model_config = ConfigDict(from_attributes=True)
 
 class AdminDashboardStats(BaseModel):
     total_users: int
