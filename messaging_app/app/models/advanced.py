@@ -61,7 +61,7 @@ class UserActivity(Base):
     action = Column(String(100), nullable=False)  # sent_message, created_channel, joined_channel, etc
     target_type = Column(String(50), nullable=False)  # message, channel, user, etc
     target_id = Column(UUID(as_uuid=True), nullable=True)
-    metadata = Column(JSON, nullable=True)  # Additional context
+    metadata_payload = Column(JSON, nullable=True)  # Additional context
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     user = relationship("User", foreign_keys=[user_id])
@@ -94,3 +94,4 @@ class SearchIndex(Base):
     keywords = Column(String, nullable=True)  # Space-separated keywords
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+

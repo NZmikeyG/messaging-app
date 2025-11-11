@@ -17,7 +17,7 @@ from app.api.schemas.advanced import (
     UserActivityResponse, SecurityAuditLogResponse, AdvancedSearchRequest,
     AdvancedSearchResult, UserAnalyticsResponse, AdminAnalyticsDashboard
 )
-from app.api.dependencies import get_current_user
+from app.dependencies import get_current_user
 from app.utils.security import hash_password, verify_password
 from app.utils.totp import TOTPManager
 from app.models.admin import UserRole
@@ -448,7 +448,7 @@ def log_user_activity(
     action: str,
     target_type: str,
     target_id: UUID = None,
-    metadata: dict = None
+    metadata_payload: dict = None
 ):
     """Log user activity for analytics."""
     activity = UserActivity(
@@ -456,9 +456,10 @@ def log_user_activity(
         action=action,
         target_type=target_type,
         target_id=target_id,
-        metadata=metadata
+        metadata_payload_payload=metadata_payload
     )
     db.add(activity)
     db.commit()
     
     logger.info(f"User activity: {action} for {user_id}")
+

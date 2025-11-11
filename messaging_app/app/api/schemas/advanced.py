@@ -32,7 +32,7 @@ class UserActivityResponse(BaseModel):
     action: str
     target_type: str
     target_id: Optional[UUID]
-    metadata: Optional[Dict[str, Any]]
+    metadata_payload: Optional[Dict[str, Any]]
     created_at: datetime
     
     class Config:
@@ -87,3 +87,4 @@ class AdminAnalyticsDashboard(BaseModel):
     two_fa_enabled_users: int
     peak_hour: int
     engagement_rate: float
+
