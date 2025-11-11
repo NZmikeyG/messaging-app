@@ -9,6 +9,12 @@ from app.models.calendar import (
     CalendarMember, 
     CalendarSubscription, 
     GoogleCalendarSync,
+    CalendarTag,
+    EventReminder,
+    EventInvite,
+    RecurringEventRule,
+    EventNotification,
+    TeamCalendarView,
 )
 
 __all__ = [
@@ -31,4 +37,10 @@ __all__ = [
     'CalendarMember',
     'CalendarSubscription',
     'GoogleCalendarSync',
+    'CalendarTag',
+    'EventReminder',
+    'EventInvite',
+    'RecurringEventRule',
+    'EventNotification',
+    'TeamCalendarView',
 ]

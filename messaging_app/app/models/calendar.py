@@ -85,3 +85,97 @@ class GoogleCalendarSync(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user = relationship("User", backref="google_sync", uselist=False)
+
+
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Boolean, JSON, Integer
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from datetime import datetime, timedelta
+import uuid
+from app.database import Base
+
+
+class CalendarTag(Base):
+    __tablename__ = "calendar_tags"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    calendar_id = Column(UUID(as_uuid=True), ForeignKey('calendars.id'), nullable=False)
+    name = Column(String(50), nullable=False)
+    color = Column(String(7), default="#808080")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    calendar = relationship("Calendar", backref="tags")
+
+
+class EventReminder(Base):
+    __tablename__ = "event_reminders"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    event_id = Column(UUID(as_uuid=True), ForeignKey('calendar_events.id'), nullable=False)
+    reminder_type = Column(String(50), default="email")  # email, push, in_app
+    remind_at = Column(DateTime, nullable=False)
+    is_sent = Column(Boolean, default=False)
+    sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    event = relationship("CalendarEvent", backref="reminders")
+
+
+class EventInvite(Base):
+    __tablename__ = "event_invites"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    event_id = Column(UUID(as_uuid=True), ForeignKey('calendar_events.id'), nullable=False)
+    invitee_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
+    status = Column(String(50), default="pending")  # pending, accepted, declined, tentative
+    response_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    event = relationship("CalendarEvent", backref="invites")
+    invitee = relationship("User", backref="event_invites", foreign_keys=[invitee_id])
+
+
+class RecurringEventRule(Base):
+    __tablename__ = "recurring_event_rules"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    original_event_id = Column(UUID(as_uuid=True), ForeignKey('calendar_events.id'), nullable=False)
+    frequency = Column(String(50), nullable=False)  # daily, weekly, monthly, yearly
+    interval = Column(Integer, default=1)
+    days_of_week = Column(String(20), nullable=True)  # for weekly: 0-6 (Mon-Sun)
+    end_date = Column(DateTime, nullable=True)
+    max_occurrences = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    original_event = relationship("CalendarEvent", backref="recurrence_rule", uselist=False, foreign_keys=[original_event_id])
+
+
+class EventNotification(Base):
+    __tablename__ = "event_notifications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
+    event_id = Column(UUID(as_uuid=True), ForeignKey('calendar_events.id'), nullable=False)
+    notification_type = Column(String(50), nullable=False)  # event_created, event_updated, reminder, invite, invite_response
+    message = Column(Text, nullable=True)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", backref="calendar_notifications")
+    event = relationship("CalendarEvent", backref="notifications")
+
+
+class TeamCalendarView(Base):
+    __tablename__ = "team_calendar_views"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    channel_id = Column(UUID(as_uuid=True), ForeignKey('channels.id'), nullable=False)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    included_calendars = Column(JSON, default={})  # {calendar_id: {user_id: True/False, ...}}
+    created_by = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    channel = relationship("Channel", backref="calendar_views")
+    creator = relationship("User", backref="created_team_calendar_views", foreign_keys=[created_by])

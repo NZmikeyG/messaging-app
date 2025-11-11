@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
 from app.config import settings
-from app.api.routers import auth, channels, messages, websocket, users, files, calendar, direct_messages, google_calendar
+from app.api.routers import auth, channels, messages, websocket, users, files, calendar, direct_messages, google_calendar, calendar_advanced
 from app.logger import get_logger
 from app.middleware.metrics import add_metrics_middleware
 from app.middleware.error_tracking import init_sentry
@@ -102,5 +102,6 @@ def metrics():
     """Prometheus metrics endpoint."""
     from prometheus_client import generate_latest
     return generate_latest()
+
 
 
