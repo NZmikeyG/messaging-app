@@ -1,47 +1,89 @@
-from pydantic import BaseModel, field_validator
-from typing import Optional
+from pydantic import BaseModel
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from uuid import UUID
 
+class TwoFactorSetupResponse(BaseModel):
+    secret: str
+    qr_code: str
+    backup_codes: List[str]
 
-class TwoFactorSetup(BaseModel):
-    secret_key: str
-    qr_code_url: Optional[str] = None
-
-
-class TwoFactorVerify(BaseModel):
+class TwoFactorVerifyRequest(BaseModel):
     code: str
 
+class TwoFactorDisableRequest(BaseModel):
+    password: str
 
-class EncryptedMessageCreate(BaseModel):
-    message_id: str
-    encrypted_content: str
-    encryption_key_id: Optional[str] = None
-
-
-class ScheduledMessageCreate(BaseModel):
-    content: str
-    channel_id: Optional[str] = None
-    recipient_id: Optional[str] = None
-    scheduled_for: datetime
-
-
-class UserAnalyticsPublic(BaseModel):
-    user_id: str
-    total_messages_sent: int
-    total_dms_sent: int
-    channels_joined: int
-    total_reactions: int
-    avg_message_length: float
+class DeviceSessionResponse(BaseModel):
+    id: UUID
+    device_name: str
+    device_type: str
+    ip_address: Optional[str]
     last_active: datetime
-    login_count: int
-
-    @field_validator('user_id', mode='before')
-    @classmethod
-    def convert_id_to_str(cls, v):
-        if isinstance(v, UUID):
-            return str(v)
-        return v
-
+    is_active: bool
+    created_at: datetime
+    
     class Config:
         from_attributes = True
+
+class UserActivityResponse(BaseModel):
+    id: UUID
+    user_id: UUID
+    action: str
+    target_type: str
+    target_id: Optional[UUID]
+    metadata: Optional[Dict[str, Any]]
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class SecurityAuditLogResponse(BaseModel):
+    id: UUID
+    user_id: UUID
+    event_type: str
+    ip_address: Optional[str]
+    status: str
+    reason: Optional[str]
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class AdvancedSearchRequest(BaseModel):
+    query: str
+    search_type: str  # all, messages, channels
+    filters: Optional[Dict[str, Any]] = None
+    limit: int = 50
+    offset: int = 0
+
+class AdvancedSearchResult(BaseModel):
+    type: str
+    id: UUID
+    title: str
+    preview: str
+    relevance_score: float
+    created_at: datetime
+
+class UserAnalyticsResponse(BaseModel):
+    user_id: UUID
+    total_messages_sent: int
+    total_channels_joined: int
+    average_messages_per_day: float
+    most_active_channel: Optional[str]
+    last_active: datetime
+    devices_active: int
+    
+    class Config:
+        from_attributes = True
+
+class AdminAnalyticsDashboard(BaseModel):
+    total_users_active_today: int
+    total_messages_today: int
+    average_response_time_ms: float
+    channels_created_today: int
+    security_events_today: int
+    failed_logins_today: int
+    two_fa_enabled_users: int
+    peak_hour: int
+    engagement_rate: float

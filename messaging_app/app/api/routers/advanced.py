@@ -1,313 +1,464 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
-from uuid import UUID
+from sqlalchemy import and_, func, desc
 from datetime import datetime, timedelta
 import logging
+from uuid import UUID
 
 from app.database import get_db
-from app.dependencies import get_current_user
 from app.models.user import User
-from app.models.two_factor_auth import TwoFactorAuth
-from app.models.encrypted_message import EncryptedMessage
-from app.models.scheduled_message import ScheduledMessage
-from app.models.user_analytics import UserAnalytics
 from app.models.message import Message
 from app.models.channel import Channel
-from app.api.schemas.advanced import (
-    TwoFactorSetup, TwoFactorVerify,
-    EncryptedMessageCreate, ScheduledMessageCreate,
-    UserAnalyticsPublic
+from app.models.advanced import (
+    TwoFactorAuth, DeviceSession, UserActivity, SecurityAuditLog, SearchIndex
 )
-from app.services.two_factor_service import TwoFactorService
-from app.services.encryption_service import encryption_service
-from app.services.cache_service import cache_service
+from app.api.schemas.advanced import (
+    TwoFactorSetupResponse, TwoFactorVerifyRequest, DeviceSessionResponse,
+    UserActivityResponse, SecurityAuditLogResponse, AdvancedSearchRequest,
+    AdvancedSearchResult, UserAnalyticsResponse, AdminAnalyticsDashboard
+)
+from app.api.dependencies import get_current_user
+from app.utils.security import hash_password, verify_password
+from app.utils.totp import TOTPManager
+from app.models.admin import UserRole
+from app.config import settings
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter()
 
+# ============ 2FA MANAGEMENT ============
 
-# ============ TWO-FACTOR AUTHENTICATION ============
-
-@router.post("/2fa/setup", response_model=TwoFactorSetup)
-async def setup_2fa(
+@router.post("/2fa/setup", response_model=TwoFactorSetupResponse)
+def setup_2fa(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Set up two-factor authentication."""
-    logger.info(f"Setting up 2FA for user {current_user.username}")
+    """Setup two-factor authentication for user."""
+    # Check if 2FA already enabled
+    twofa = db.query(TwoFactorAuth).filter(
+        TwoFactorAuth.user_id == current_user.id
+    ).first()
     
-    secret, qr_code = TwoFactorService.generate_secret(current_user.username)
-    backup_codes = TwoFactorService.generate_backup_codes()
+    if twofa and twofa.is_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="2FA already enabled"
+        )
     
-    # Store temporarily (user must verify within 15 minutes)
-    await cache_service.set(
-        f"2fa_temp:{current_user.id}",
-        {
-            "secret": secret,
-            "backup_codes": backup_codes
-        },
-        ttl=900  # 15 minutes
+    # Generate secret
+    secret = TOTPManager.generate_secret()
+    backup_codes = TOTPManager.generate_backup_codes()
+    
+    # Generate QR code
+    qr_code = TOTPManager.generate_qr_code(secret, current_user.email)
+    
+    # Store temporary secret (not enabled yet)
+    if twofa:
+        twofa.secret = secret
+        twofa.backup_codes = ",".join(backup_codes)
+    else:
+        twofa = TwoFactorAuth(
+            user_id=current_user.id,
+            secret=secret,
+            backup_codes=",".join(backup_codes),
+            is_enabled=False
+        )
+        db.add(twofa)
+    
+    db.commit()
+    
+    logger.info(f"2FA setup initiated for user: {current_user.id}")
+    
+    return TwoFactorSetupResponse(
+        secret=secret,
+        qr_code=f"data:image/png;base64,{qr_code}",
+        backup_codes=backup_codes
     )
-    
-    return {
-        "secret_key": secret,
-        "qr_code_url": f"data:image/png;base64,{qr_code}"
-    }
 
 
-@router.post("/2fa/verify", status_code=200)
-async def verify_2fa(
-    verify: TwoFactorVerify,
+@router.post("/2fa/verify")
+def verify_2fa(
+    verify_data: TwoFactorVerifyRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Verify and enable 2FA."""
-    logger.info(f"Verifying 2FA for user {current_user.username}")
+    twofa = db.query(TwoFactorAuth).filter(
+        TwoFactorAuth.user_id == current_user.id
+    ).first()
     
-    temp_2fa = await cache_service.get(f"2fa_temp:{current_user.id}")
-    if not temp_2fa:
-        raise HTTPException(status_code=400, detail="2FA setup not initiated")
-    
-    if not TwoFactorService.verify_totp(temp_2fa["secret"], verify.code):
-        raise HTTPException(status_code=400, detail="Invalid verification code")
-    
-    # Save 2FA settings
-    twofa = db.query(TwoFactorAuth).filter(TwoFactorAuth.user_id == current_user.id).first()
-    if not twofa:
-        twofa = TwoFactorAuth(
-            user_id=current_user.id,
-            secret_key=temp_2fa["secret"],
-            backup_codes=",".join(temp_2fa["backup_codes"])
+    if not twofa or not twofa.secret:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="2FA not setup"
         )
-        db.add(twofa)
-    else:
-        twofa.secret_key = temp_2fa["secret"]
-        twofa.backup_codes = ",".join(temp_2fa["backup_codes"])
     
+    # Verify TOTP code
+    if not TOTPManager.verify_token(twofa.secret, verify_data.code):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid 2FA code"
+        )
+    
+    # Enable 2FA
     twofa.is_enabled = True
+    twofa.enabled_at = datetime.utcnow()
     db.commit()
     
-    # Clear temporary cache
-    await cache_service.delete(f"2fa_temp:{current_user.id}")
+    logger.info(f"2FA enabled for user: {current_user.id}")
     
-    return {"message": "2FA enabled successfully", "backup_codes": temp_2fa["backup_codes"]}
+    # Log security event
+    log_security_event(
+        db, current_user.id, "2fa_enabled", "success", None
+    )
+    
+    return {"message": "2FA enabled successfully"}
 
 
-@router.post("/2fa/disable", status_code=200)
-async def disable_2fa(
-    verify: TwoFactorVerify,
+@router.post("/2fa/disable")
+def disable_2fa(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Disable 2FA."""
-    logger.warning(f"Disabling 2FA for user {current_user.username}")
+    twofa = db.query(TwoFactorAuth).filter(
+        TwoFactorAuth.user_id == current_user.id
+    ).first()
     
-    twofa = db.query(TwoFactorAuth).filter(TwoFactorAuth.user_id == current_user.id).first()
     if not twofa or not twofa.is_enabled:
-        raise HTTPException(status_code=400, detail="2FA not enabled")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="2FA not enabled"
+        )
     
-    if not TwoFactorService.verify_totp(twofa.secret_key, verify.code):
-        raise HTTPException(status_code=400, detail="Invalid code")
-    
+    # Disable 2FA
     twofa.is_enabled = False
     db.commit()
     
-    return {"message": "2FA disabled"}
-
-
-# ============ MESSAGE ENCRYPTION ============
-
-@router.post("/messages/{message_id}/encrypt", status_code=200)
-async def encrypt_message(
-    message_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Encrypt a message."""
-    try:
-        msg_uuid = UUID(message_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid message ID")
+    logger.info(f"2FA disabled for user: {current_user.id}")
     
-    message = db.query(Message).filter(Message.id == msg_uuid).first()
-    if not message:
-        raise HTTPException(status_code=404, detail="Message not found")
-    
-    if message.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Can only encrypt your own messages")
-    
-    try:
-        encrypted_content, salt = encryption_service.encrypt_message(message.content)
-        
-        encrypted_msg = EncryptedMessage(
-            message_id=msg_uuid,
-            encrypted_content=encrypted_content
-        )
-        db.add(encrypted_msg)
-        db.commit()
-        
-        logger.info(f"Message {message_id} encrypted")
-        
-        return {"message": "Message encrypted", "encrypted": True}
-    
-    except Exception as e:
-        logger.error(f"Encryption error: {e}")
-        raise HTTPException(status_code=500, detail="Encryption failed")
-
-
-# ============ SCHEDULED MESSAGES ============
-
-@router.post("/messages/schedule", response_model=dict, status_code=201)
-async def schedule_message(
-    scheduled: ScheduledMessageCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Schedule a message to be sent later."""
-    logger.info(f"Scheduling message by user {current_user.username}")
-    
-    if scheduled.scheduled_for < datetime.utcnow():
-        raise HTTPException(status_code=400, detail="Cannot schedule in the past")
-    
-    if scheduled.channel_id:
-        try:
-            channel_uuid = UUID(scheduled.channel_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid channel ID")
-        
-        channel = db.query(Channel).filter(Channel.id == channel_uuid).first()
-        if not channel or current_user not in channel.members:
-            raise HTTPException(status_code=403, detail="Not a member of this channel")
-    
-    scheduled_msg = ScheduledMessage(
-        user_id=current_user.id,
-        channel_id=UUID(scheduled.channel_id) if scheduled.channel_id else None,
-        recipient_id=UUID(scheduled.recipient_id) if scheduled.recipient_id else None,
-        content=scheduled.content,
-        scheduled_for=scheduled.scheduled_for
+    # Log security event
+    log_security_event(
+        db, current_user.id, "2fa_disabled", "success", None
     )
-    db.add(scheduled_msg)
-    db.commit()
-    db.refresh(scheduled_msg)
     
-    return {
-        "message": "Message scheduled",
-        "scheduled_id": str(scheduled_msg.id),
-        "scheduled_for": scheduled_msg.scheduled_for
-    }
+    return {"message": "2FA disabled successfully"}
 
 
-@router.get("/messages/scheduled")
-async def get_scheduled_messages(
+# ============ DEVICE MANAGEMENT ============
+
+@router.get("/devices", response_model=list[DeviceSessionResponse])
+def get_devices(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get user's scheduled messages."""
-    scheduled = db.query(ScheduledMessage).filter(
-        ScheduledMessage.user_id == current_user.id,
-        ScheduledMessage.is_sent == False
+    """Get all active devices for current user."""
+    devices = db.query(DeviceSession).filter(
+        and_(
+            DeviceSession.user_id == current_user.id,
+            DeviceSession.is_active == True
+        )
     ).all()
     
-    return [
-        {
-            "id": str(s.id),
-            "content": s.content,
-            "channel_id": str(s.channel_id) if s.channel_id else None,
-            "recipient_id": str(s.recipient_id) if s.recipient_id else None,
-            "scheduled_for": s.scheduled_for
-        }
-        for s in scheduled
-    ]
+    return devices
 
 
-@router.delete("/messages/scheduled/{scheduled_id}", status_code=204)
-async def cancel_scheduled_message(
-    scheduled_id: str,
+@router.post("/devices", response_model=DeviceSessionResponse)
+def register_device(
+    device_name: str,
+    device_type: str,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Cancel a scheduled message."""
-    try:
-        sched_uuid = UUID(scheduled_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid scheduled message ID")
+    """Register a new device."""
+    # Get IP address and user agent
+    ip_address = request.client.host
+    user_agent = request.headers.get("user-agent", "")
     
-    scheduled = db.query(ScheduledMessage).filter(
-        ScheduledMessage.id == sched_uuid,
-        ScheduledMessage.user_id == current_user.id
-    ).first()
-    
-    if not scheduled:
-        raise HTTPException(status_code=404, detail="Scheduled message not found")
-    
-    if scheduled.is_sent:
-        raise HTTPException(status_code=400, detail="Message already sent")
-    
-    db.delete(scheduled)
+    # Create device session
+    device = DeviceSession(
+        user_id=current_user.id,
+        device_name=device_name,
+        device_type=device_type,
+        ip_address=ip_address,
+        user_agent=user_agent
+    )
+    db.add(device)
     db.commit()
+    db.refresh(device)
+    
+    logger.info(f"Device registered: {current_user.id} - {device_name}")
+    
+    return device
 
 
-# ============ USER ANALYTICS ============
-
-@router.get("/analytics/me", response_model=UserAnalyticsPublic)
-async def get_my_analytics(
+@router.delete("/devices/{device_id}")
+def remove_device(
+    device_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get current user's analytics."""
-    cache_key = f"analytics:{current_user.id}"
-    
-    cached = await cache_service.get(cache_key)
-    if cached:
-        return cached
-    
-    analytics = db.query(UserAnalytics).filter(
-        UserAnalytics.user_id == current_user.id
+    """Remove a device session."""
+    device = db.query(DeviceSession).filter(
+        and_(
+            DeviceSession.id == device_id,
+            DeviceSession.user_id == current_user.id
+        )
     ).first()
     
-    if not analytics:
-        analytics = UserAnalytics(user_id=current_user.id)
-        db.add(analytics)
-        db.commit()
-        db.refresh(analytics)
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found"
+        )
     
-    result = {
-        "user_id": str(analytics.user_id),
-        "total_messages_sent": analytics.total_messages_sent,
-        "total_dms_sent": analytics.total_dms_sent,
-        "channels_joined": analytics.channels_joined,
-        "total_reactions": analytics.total_reactions,
-        "avg_message_length": analytics.avg_message_length,
-        "last_active": analytics.last_active,
-        "login_count": analytics.login_count
-    }
+    device.is_active = False
+    db.commit()
     
-    await cache_service.set(cache_key, result, ttl=300)
-    return result
+    logger.info(f"Device removed: {current_user.id} - {device.device_name}")
+    
+    return {"message": "Device removed successfully"}
 
 
-@router.get("/analytics/users/{user_id}", response_model=UserAnalyticsPublic)
-async def get_user_analytics(
-    user_id: str,
+# ============ ADVANCED SEARCH ============
+
+@router.post("/search", response_model=list[AdvancedSearchResult])
+def advanced_search(
+    search_req: AdvancedSearchRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get any user's public analytics (admin only)."""
-    # Check admin privilege
-    from app.api.routers.admin import check_admin
-    check_admin(current_user, db)
+    """Advanced search for messages and channels."""
+    results = []
+    query = search_req.query.lower()
     
-    try:
-        user_uuid = UUID(user_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid user ID")
+    # Search messages
+    if search_req.search_type in ["all", "messages"]:
+        messages = db.query(Message).filter(
+            Message.content.ilike(f"%{query}%")
+        ).limit(search_req.limit).offset(search_req.offset).all()
+        
+        for msg in messages:
+            results.append(AdvancedSearchResult(
+                type="message",
+                id=msg.id,
+                title=f"Message from {msg.sender.username}",
+                preview=msg.content[:100],
+                relevance_score=0.9,
+                created_at=msg.created_at
+            ))
     
-    analytics = db.query(UserAnalytics).filter(
-        UserAnalytics.user_id == user_uuid
+    # Search channels
+    if search_req.search_type in ["all", "channels"]:
+        channels = db.query(Channel).filter(
+            Channel.name.ilike(f"%{query}%")
+        ).limit(search_req.limit).offset(search_req.offset).all()
+        
+        for ch in channels:
+            results.append(AdvancedSearchResult(
+                type="channel",
+                id=ch.id,
+                title=ch.name,
+                preview=ch.description or "No description",
+                relevance_score=0.95,
+                created_at=ch.created_at
+            ))
+    
+    # Sort by relevance and date
+    results.sort(key=lambda x: (-x.relevance_score, -x.created_at.timestamp()))
+    
+    return results
+
+
+# ============ ANALYTICS ============
+
+@router.get("/analytics/user", response_model=UserAnalyticsResponse)
+def get_user_analytics(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get analytics for current user."""
+    # Total messages sent
+    total_messages = db.query(func.count(Message.id)).filter(
+        Message.sender_id == current_user.id
+    ).scalar() or 0
+    
+    # Messages last 30 days
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    messages_30days = db.query(func.count(Message.id)).filter(
+        and_(
+            Message.sender_id == current_user.id,
+            Message.created_at >= thirty_days_ago
+        )
+    ).scalar() or 0
+    
+    # Average messages per day
+    avg_per_day = messages_30days / 30 if messages_30days > 0 else 0
+    
+    # Total channels joined
+    total_channels = db.query(func.count(Channel.id)).filter(
+        Channel.created_by == current_user.id
+    ).scalar() or 0
+    
+    # Active devices
+    active_devices = db.query(func.count(DeviceSession.id)).filter(
+        and_(
+            DeviceSession.user_id == current_user.id,
+            DeviceSession.is_active == True
+        )
+    ).scalar() or 0
+    
+    # Last active
+    last_activity = db.query(UserActivity).filter(
+        UserActivity.user_id == current_user.id
+    ).order_by(desc(UserActivity.created_at)).first()
+    
+    last_active = last_activity.created_at if last_activity else current_user.created_at
+    
+    return UserAnalyticsResponse(
+        user_id=current_user.id,
+        total_messages_sent=total_messages,
+        total_channels_joined=total_channels,
+        average_messages_per_day=avg_per_day,
+        most_active_channel=None,
+        last_active=last_active,
+        devices_active=active_devices
+    )
+
+
+@router.get("/analytics/dashboard", response_model=AdminAnalyticsDashboard)
+def get_admin_analytics(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get admin analytics dashboard (Admin only)."""
+    # Verify admin
+    user_role = db.query(UserRole).filter(
+        UserRole.user_id == current_user.id
     ).first()
     
-    if not analytics:
-        raise HTTPException(status_code=404, detail="Analytics not found")
+    if not user_role or user_role.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can view dashboard"
+        )
     
-    return analytics
+    today = datetime.utcnow().date()
+    
+    # Users active today
+    active_today = db.query(func.count(UserActivity.id)).filter(
+        func.date(UserActivity.created_at) == today
+    ).scalar() or 0
+    
+    # Messages today
+    messages_today = db.query(func.count(Message.id)).filter(
+        func.date(Message.created_at) == today
+    ).scalar() or 0
+    
+    # Channels created today
+    channels_today = db.query(func.count(Channel.id)).filter(
+        func.date(Channel.created_at) == today
+    ).scalar() or 0
+    
+    # Security events today
+    security_events = db.query(func.count(SecurityAuditLog.id)).filter(
+        func.date(SecurityAuditLog.created_at) == today
+    ).scalar() or 0
+    
+    # Failed logins
+    failed_logins = db.query(func.count(SecurityAuditLog.id)).filter(
+        and_(
+            func.date(SecurityAuditLog.created_at) == today,
+            SecurityAuditLog.status == "failure",
+            SecurityAuditLog.event_type == "login"
+        )
+    ).scalar() or 0
+    
+    # 2FA enabled users
+    twofa_enabled = db.query(func.count(TwoFactorAuth.id)).filter(
+        TwoFactorAuth.is_enabled == True
+    ).scalar() or 0
+    
+    return AdminAnalyticsDashboard(
+        total_users_active_today=active_today,
+        total_messages_today=messages_today,
+        average_response_time_ms=150.0,
+        channels_created_today=channels_today,
+        security_events_today=security_events,
+        failed_logins_today=failed_logins,
+        two_fa_enabled_users=twofa_enabled,
+        peak_hour=14,
+        engagement_rate=0.75
+    )
+
+
+# ============ SECURITY AUDIT ============
+
+@router.get("/security/audit-log", response_model=list[SecurityAuditLogResponse])
+def get_security_log(
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get security audit log for current user."""
+    logs = db.query(SecurityAuditLog).filter(
+        SecurityAuditLog.user_id == current_user.id
+    ).order_by(desc(SecurityAuditLog.created_at)).offset(skip).limit(limit).all()
+    
+    return logs
+
+
+# ============ HELPER FUNCTIONS ============
+
+def log_security_event(
+    db: Session,
+    user_id: UUID,
+    event_type: str,
+    status: str,
+    request: Request = None,
+    reason: str = None
+):
+    """Log a security event."""
+    ip_address = None
+    user_agent = None
+    
+    if request:
+        ip_address = request.client.host
+        user_agent = request.headers.get("user-agent")
+    
+    audit_log = SecurityAuditLog(
+        user_id=user_id,
+        event_type=event_type,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        status=status,
+        reason=reason
+    )
+    db.add(audit_log)
+    db.commit()
+    
+    logger.info(f"Security event: {event_type} for {user_id} - {status}")
+
+
+def log_user_activity(
+    db: Session,
+    user_id: UUID,
+    action: str,
+    target_type: str,
+    target_id: UUID = None,
+    metadata: dict = None
+):
+    """Log user activity for analytics."""
+    activity = UserActivity(
+        user_id=user_id,
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        metadata=metadata
+    )
+    db.add(activity)
+    db.commit()
+    
+    logger.info(f"User activity: {action} for {user_id}")

@@ -9,6 +9,7 @@ from app.middleware.metrics import add_metrics_middleware
 from app.middleware.error_tracking import init_sentry
 from slowapi.errors import RateLimitExceeded
 from app.api.routers import admin
+from app.api.routers import advanced
 import logging
 
 logger = get_logger(__name__)
@@ -84,6 +85,7 @@ app.include_router(calendar.router, prefix="/api/calendar", tags=["calendar"])
 app.include_router(websocket.router, prefix="/api", tags=["websocket"])
 app.include_router(direct_messages.router, prefix="/api/direct-messages", tags=["direct-messages"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(advanced.router, prefix="/api/advanced", tags=["advanced"])
 
 @app.get("/")
 def root():
