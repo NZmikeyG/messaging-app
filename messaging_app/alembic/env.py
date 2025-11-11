@@ -23,7 +23,7 @@ from app.models.user import User
 from app.models.channel import Channel
 from app.models.message import Message
 from app.models.file import File
-from app.models.calendar import CalendarEvent, UserCalendarSettings
+from app.models.calendar import Calendar, CalendarEvent, CalendarMember, CalendarSubscription, GoogleCalendarSync
 
 target_metadata = Base.metadata
 
@@ -64,3 +64,4 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
+
