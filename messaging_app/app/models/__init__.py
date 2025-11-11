@@ -15,6 +15,11 @@ from app.models.calendar import (
     RecurringEventRule,
     EventNotification,
     TeamCalendarView,
+    GoogleDriveConnection,
+    GoogleDriveFile,
+    DriveFileVersion,
+    DriveAccessLog,
+    DrivePermission,
 )
 
 __all__ = [
@@ -43,4 +48,9 @@ __all__ = [
     'RecurringEventRule',
     'EventNotification',
     'TeamCalendarView',
+    'GoogleDriveConnection',
+    'GoogleDriveFile',
+    'DriveFileVersion',
+    'DriveAccessLog',
+    'DrivePermission',
 ]

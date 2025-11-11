@@ -179,3 +179,103 @@ class TeamCalendarView(Base):
 
     channel = relationship("Channel", backref="calendar_views")
     creator = relationship("User", backref="created_team_calendar_views", foreign_keys=[created_by])
+
+
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Boolean, JSON, Integer, BigInteger
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from datetime import datetime
+import uuid
+from app.database import Base
+
+
+class GoogleDriveConnection(Base):
+    __tablename__ = "google_drive_connections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    team_id = Column(String(255), nullable=False, unique=True)  # Organization identifier
+    access_token = Column(Text, nullable=False)
+    refresh_token = Column(Text, nullable=False)
+    folder_id = Column(String(255), nullable=False)  # Team's shared folder ID
+    folder_name = Column(String(255), default="Team Drive")
+    created_by = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+
+    creator = relationship("User", backref="drive_connections", foreign_keys=[created_by])
+    files = relationship("GoogleDriveFile", backref="drive_connection", cascade="all, delete-orphan")
+    access_logs = relationship("DriveAccessLog", backref="drive_connection", cascade="all, delete-orphan", overlaps="connection")
+
+
+class GoogleDriveFile(Base):
+    __tablename__ = "google_drive_files"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    drive_id = Column(UUID(as_uuid=True), ForeignKey('google_drive_connections.id'), nullable=False)
+    google_file_id = Column(String(255), nullable=False, unique=True)
+    file_name = Column(String(500), nullable=False)
+    file_type = Column(String(50), nullable=False)  # image, document, video, other
+    file_size = Column(BigInteger, nullable=False)  # in bytes
+    mime_type = Column(String(100), nullable=False)
+    uploaded_by = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    google_web_view_link = Column(Text, nullable=True)  # Link to view in Google Drive
+    google_download_link = Column(Text, nullable=True)  # Direct download link
+    description = Column(Text, nullable=True)
+    is_shared = Column(Boolean, default=True)
+    metadata_payload = Column(JSON, nullable=True)  # Custom metadata
+
+    drive = relationship("GoogleDriveConnection", backref="drive_files", overlaps="files")
+    uploader = relationship("User", backref="uploaded_drive_files", foreign_keys=[uploaded_by])
+    access_logs = relationship("DriveAccessLog", backref="file", cascade="all, delete-orphan")
+
+
+class DriveFileVersion(Base):
+    __tablename__ = "drive_file_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    file_id = Column(UUID(as_uuid=True), ForeignKey('google_drive_files.id'), nullable=False)
+    google_version_id = Column(String(255), nullable=False)
+    version_number = Column(Integer, nullable=False)
+    modified_by = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
+    modified_at = Column(DateTime, nullable=False)
+    file_size = Column(BigInteger, nullable=False)
+    change_description = Column(Text, nullable=True)
+
+    file = relationship("GoogleDriveFile", backref="versions")
+    modifier = relationship("User", backref="modified_drive_file_versions", foreign_keys=[modified_by])
+
+
+class DriveAccessLog(Base):
+    __tablename__ = "drive_access_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    drive_id = Column(UUID(as_uuid=True), ForeignKey('google_drive_connections.id'), nullable=False)
+    file_id = Column(UUID(as_uuid=True), ForeignKey('google_drive_files.id'), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
+    action = Column(String(50), nullable=False)  # upload, download, delete, view, share
+    ip_address = Column(String(50), nullable=True)
+    user_agent = Column(Text, nullable=True)
+    status = Column(String(50), nullable=False)  # success, failed
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", backref="drive_access_logs")
+
+
+class DrivePermission(Base):
+    __tablename__ = "drive_permissions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    drive_id = Column(UUID(as_uuid=True), ForeignKey('google_drive_connections.id'), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
+    permission_level = Column(String(50), default="view")  # view, download, edit, delete, admin
+    granted_by = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
+    granted_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)  # NULL = no expiration
+
+    drive = relationship("GoogleDriveConnection", backref="permissions")
+    user = relationship("User", backref="drive_permissions", foreign_keys=[user_id])
+    granter = relationship("User", backref="granted_drive_permissions", foreign_keys=[granted_by])
